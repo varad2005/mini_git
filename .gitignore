@@ -2,9 +2,10 @@
 # Backend artifacts
 backend/mygit
 backend/test_repo/
-backend/*.o
+backend/src/*.o
 # Python artifacts
 __pycache__/
 *.pyc
 # OS files
 .DS_Store
+backend/*.o

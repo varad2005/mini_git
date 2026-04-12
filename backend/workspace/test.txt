@@ -1,0 +1,2 @@
+This is a test file in your new workspace folder!
+You can add it in the Mini Git UI using 'workspace/test.txt'.

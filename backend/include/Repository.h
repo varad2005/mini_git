@@ -23,6 +23,7 @@ private:
     static std::string getHead();
     static void setHead(const std::string& value);
     static std::string getCurrentBranch();
+    static std::string resolveId(const std::string& input);
     static std::vector<std::string> getAllBranches();
     static void storeObject(const std::string& hash, const std::string& content);
     static std::string getObject(const std::string& hash);

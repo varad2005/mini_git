@@ -42,22 +42,22 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         status_code = 404
 
         if path == "/log":
-            result = subprocess.run([BACKEND_PATH, "log"], capture_output=True, text=True)
+            result = subprocess.run([BACKEND_PATH, "log"], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
             response_data = {"output": result.stdout, "stderr": result.stderr}
             status_code = 200
         elif path == "/graph":
-            result = subprocess.run([BACKEND_PATH, "graph"], capture_output=True, text=True)
+            result = subprocess.run([BACKEND_PATH, "graph"], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
             response_data = {"output": result.stdout, "stderr": result.stderr}
             status_code = 200
         elif path.startswith("/diff/"):
             parts = path.split("/")
             if len(parts) >= 4:
                 c1, c2 = parts[2], parts[3]
-                result = subprocess.run([BACKEND_PATH, "diff", c1, c2], capture_output=True, text=True)
+                result = subprocess.run([BACKEND_PATH, "diff", c1, c2], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
                 response_data = {"output": result.stdout, "stderr": result.stderr}
                 status_code = 200
         elif path == "/init":
-            result = subprocess.run([BACKEND_PATH, "init"], capture_output=True, text=True)
+            result = subprocess.run([BACKEND_PATH, "init"], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
             response_data = {"output": result.stdout, "stderr": result.stderr}
             status_code = 200
 
@@ -88,7 +88,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             args = ["checkout", data.get("name", "")]
 
         if args:
-            result = subprocess.run([BACKEND_PATH] + args, capture_output=True, text=True)
+            result = subprocess.run([BACKEND_PATH] + args, cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
             response_data = {"output": result.stdout, "stderr": result.stderr}
             status_code = 200
 

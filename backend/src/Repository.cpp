@@ -230,30 +230,24 @@ bool Repository::checkout(const std::string& branchName) {
         return false;
     }
 
-    std::string commitId;
+    std::string commitId = resolveId(branchName);
+    if (commitId.empty()) {
+        std::cerr << "Error: Branch or commit '" << branchName << "' not found." << std::endl;
+        return false;
+    }
+
+    // Check if it's a branch for the HEAD reference
     std::string branchPath = ".mygit/branches/" + branchName;
-
     if (fs::exists(branchPath)) {
-        std::ifstream branchFile(branchPath);
-        std::getline(branchFile, commitId);
-        branchFile.close();
-
         std::ofstream headFile(".mygit/HEAD");
         headFile << "ref: " << branchName;
         headFile.close();
         std::cout << "Switched to branch '" << branchName << "'" << std::endl;
     } else {
-        std::string commitDir = ".mygit/commits/" + branchName;
-        if (fs::exists(commitDir)) {
-            commitId = branchName;
-            std::ofstream headFile(".mygit/HEAD");
-            headFile << commitId;
-            headFile.close();
-            std::cout << "Switched to detached HEAD at " << commitId << std::endl;
-        } else {
-            std::cerr << "Error: Branch or commit '" << branchName << "' not found." << std::endl;
-            return false;
-        }
+        std::ofstream headFile(".mygit/HEAD");
+        headFile << commitId;
+        headFile.close();
+        std::cout << "Switched to detached HEAD at " << commitId << std::endl;
     }
 
     if (!commitId.empty() && commitId != "null" && commitId != "") {
@@ -282,11 +276,19 @@ void Repository::diff(const std::string& commit1, const std::string& commit2) {
         return;
     }
 
-    std::string path1 = ".mygit/commits/" + commit1 + "/tree.txt";
-    std::string path2 = ".mygit/commits/" + commit2 + "/tree.txt";
+    std::string id1 = resolveId(commit1);
+    std::string id2 = resolveId(commit2);
+
+    if (id1.empty() || id2.empty()) {
+        std::cerr << "Error: One or both commit IDs/branches are invalid." << std::endl;
+        return;
+    }
+
+    std::string path1 = ".mygit/commits/" + id1 + "/tree.txt";
+    std::string path2 = ".mygit/commits/" + id2 + "/tree.txt";
 
     if (!fs::exists(path1) || !fs::exists(path2)) {
-        std::cerr << "Error: One or both commit IDs are invalid." << std::endl;
+        std::cerr << "Error: One or both commit data snapshots are missing." << std::endl;
         return;
     }
 
@@ -340,6 +342,40 @@ void Repository::storeObject(const std::string& hash, const std::string& content
         file << content;
         file.close();
     }
+}
+
+std::string Repository::resolveId(const std::string& input) {
+    if (input.empty()) return "";
+
+    // 1. Check if it's a branch
+    std::string branchPath = ".mygit/branches/" + input;
+    if (fs::exists(branchPath)) {
+        std::ifstream branchFile(branchPath);
+        std::string commitId;
+        std::getline(branchFile, commitId);
+        return commitId;
+    }
+
+    // 2. Check if it's a full ID or a prefix
+    std::vector<std::string> matches;
+    if (fs::exists(".mygit/commits")) {
+        for (const auto& entry : fs::directory_iterator(".mygit/commits")) {
+            std::string name = entry.path().filename().string();
+            if (name.compare(0, input.length(), input) == 0) { // Starts with
+                matches.push_back(name);
+            }
+        }
+    }
+
+    if (matches.size() == 1) {
+        return matches[0];
+    } else if (matches.size() > 1) {
+        std::cerr << "Error: Commit ID '" << input << "' is ambiguous. Did you mean:\n";
+        for (const auto& m : matches) std::cerr << "  " << m << "\n";
+        return "";
+    }
+
+    return "";
 }
 
 std::string Repository::getObject(const std::string& hash) {
