@@ -1,0 +1,10 @@
+.mygit/
+# Backend artifacts
+backend/mygit
+backend/test_repo/
+backend/*.o
+# Python artifacts
+__pycache__/
+*.pyc
+# OS files
+.DS_Store

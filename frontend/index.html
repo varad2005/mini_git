@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini GitHub | Version Control Visualizer</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="icon">✴</span>
+                <h1>Mini GitHub</h1>
+            </div>
+            <nav class="actions">
+                <button onclick="runInit()" class="btn btn-primary">Init Repo</button>
+                <div class="input-group">
+                    <input type="text" id="filename" placeholder="File to add...">
+                    <button onclick="runAdd()" class="btn btn-secondary">Add</button>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="commitMsg" placeholder="Commit message...">
+                    <button onclick="runCommit()" class="btn btn-success">Commit</button>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="branchName" placeholder="Branch name...">
+                    <button onclick="runBranch()" class="btn btn-outline">Branch</button>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="checkoutTarget" placeholder="Branch or Commit ID...">
+                    <button onclick="runCheckout()" class="btn btn-outline">Checkout</button>
+                </div>
+            </nav>
+            <div class="status-bar" id="statusBar">
+                Ready
+            </div>
+        </aside>
+
+        <main class="content">
+            <header class="content-header">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('history')">Commit History</button>
+                    <button class="tab" onclick="switchTab('diff')">Diff Viewer</button>
+                </div>
+            </header>
+            
+            <section id="history-view" class="view">
+                <div class="graph-container">
+                    <!-- Commit Graph/List will be rendered here -->
+                    <div id="commitList" class="commit-list"></div>
+                </div>
+            </section>
+
+            <section id="diff-view" class="view" style="display: none;">
+                <div class="diff-controls">
+                    <input type="text" id="commit1" placeholder="Commit ID 1">
+                    <input type="text" id="commit2" placeholder="Commit ID 2">
+                    <button onclick="runDiff()" class="btn btn-primary">Compare</button>
+                </div>
+                <pre id="diffOutput" class="diff-box"></pre>
+            </section>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
