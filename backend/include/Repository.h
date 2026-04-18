@@ -3,6 +3,8 @@
 
 #include <string>
 #include <vector>
+#include <map>
+#include <set>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -11,7 +13,8 @@ class Repository {
 public:
     static bool init();
     static bool add(const std::string& filename);
-    static bool commit(const std::string& message);
+    static bool commit(const std::string& message, const std::vector<std::string>& extraParents = {});
+    static bool merge(const std::string& target);
     static void log();
     static bool branch(const std::string& branchName);
     static bool checkout(const std::string& branchName);
@@ -22,6 +25,11 @@ public:
     static bool stashPop();
     static bool reset(const std::string& commitId, bool hard = true);
     static std::string getGraph();
+    
+    // Merge Helpers
+    static std::map<std::string, std::string> getTree(const std::string& commitId);
+    static std::set<std::string> getHistory(const std::string& startId);
+    static std::string findLCA(const std::string& id1, const std::string& id2);
 
 private:
     static bool isIgnored(const std::string& path);

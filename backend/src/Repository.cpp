@@ -153,7 +153,7 @@ std::string Repository::calculateHash(const std::string& content) {
     return ss.str();
 }
 
-bool Repository::commit(const std::string& message) {
+bool Repository::commit(const std::string& message, const std::vector<std::string>& extraParents) {
     if (!fs::exists(".mygit")) {
         std::cerr << "Error: Not a mygit repository." << std::endl;
         return false;
@@ -164,9 +164,13 @@ bool Repository::commit(const std::string& message) {
         return false;
     }
 
-    std::string parentId = getHead();
+    std::string primaryParent = getHead();
     std::string timestamp = std::to_string(std::time(nullptr));
-    std::string commitId = calculateHash(message + parentId + timestamp);
+    
+    // Hash includes all parents
+    std::string parentsStr = primaryParent;
+    for (const auto& p : extraParents) parentsStr += "," + p;
+    std::string commitId = calculateHash(message + parentsStr + timestamp);
 
     std::string commitDir = ".mygit/commits/" + commitId;
     fs::create_directory(commitDir);
@@ -177,7 +181,12 @@ bool Repository::commit(const std::string& message) {
     // Save metadata
     std::ofstream metaFile(commitDir + "/metadata.txt");
     metaFile << "message: " << message << "\n";
-    metaFile << "parent: " << parentId << "\n";
+    metaFile << "parent: " << primaryParent << "\n";
+    for (const auto& p : extraParents) {
+        metaFile << "parent: " << p << "\n";
+    }
+    metaFile << "timestamp: " << timestamp << "\n";
+    metaFile.close();
     metaFile << "timestamp: " << timestamp << "\n";
     metaFile.close();
 
@@ -763,7 +772,11 @@ bool Repository::stashPop() {
         for (auto const& entry : fs::recursive_directory_iterator(stashDir + "/files")) {
             if (fs::is_directory(entry)) continue;
             std::string relative = entry.path().lexically_relative(stashDir + "/files").string();
-            fs::create_directories(fs::path(relative).parent_path());
+            
+            fs::path pParent = fs::path(relative).parent_path();
+            if (!pParent.empty()) {
+                fs::create_directories(pParent);
+            }
             fs::copy(entry.path(), relative, fs::copy_options::overwrite_existing);
         }
     }
@@ -795,4 +808,175 @@ bool Repository::reset(const std::string& commitId, bool hard) {
     
     std::cout << "\033[32mHEAD is now at " << id.substr(0, 8) << "\033[0m" << std::endl;
     return true;
+}
+
+std::map<std::string, std::string> Repository::getTree(const std::string& commitId) {
+    std::map<std::string, std::string> tree;
+    std::string treePath = ".mygit/commits/" + commitId + "/tree.txt";
+    if (!fs::exists(treePath)) return tree;
+    
+    std::ifstream file(treePath);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::stringstream ss(line);
+        std::string filename, hash;
+        ss >> filename >> hash;
+        if (!filename.empty()) tree[filename] = hash;
+    }
+    return tree;
+}
+
+std::set<std::string> Repository::getHistory(const std::string& startId) {
+    std::set<std::string> history;
+    if (startId.empty() || startId == "null") return history;
+    
+    std::vector<std::string> queue = {startId};
+    unsigned int head = 0;
+    while (head < queue.size()) {
+        std::string curr = queue[head++];
+        if (history.count(curr)) continue;
+        history.insert(curr);
+        
+        std::string metaPath = ".mygit/commits/" + curr + "/metadata.txt";
+        if (fs::exists(metaPath)) {
+            std::ifstream file(metaPath);
+            std::string line;
+            while (std::getline(file, line)) {
+                if (line.substr(0, 8) == "parent: ") {
+                    std::string p = line.substr(8);
+                    if (!p.empty() && p != "null") queue.push_back(p);
+                }
+            }
+        }
+    }
+    return history;
+}
+
+std::string Repository::findLCA(const std::string& id1, const std::string& id2) {
+    std::set<std::string> history1 = getHistory(id1);
+    
+    // BFS on id2 to find first common ancestor
+    std::set<std::string> visited2;
+    std::vector<std::string> queue = {id2};
+    unsigned int head = 0;
+    while (head < queue.size()) {
+        std::string curr = queue[head++];
+        if (visited2.count(curr)) continue;
+        visited2.insert(curr);
+        
+        if (history1.count(curr)) return curr; // Found common ancestor
+        
+        std::string metaPath = ".mygit/commits/" + curr + "/metadata.txt";
+        if (fs::exists(metaPath)) {
+            std::ifstream file(metaPath);
+            std::string line;
+            while (std::getline(file, line)) {
+                if (line.substr(0, 8) == "parent: ") {
+                    std::string p = line.substr(8);
+                    if (!p.empty() && p != "null") queue.push_back(p);
+                }
+            }
+        }
+    }
+    return "";
+}
+
+bool Repository::merge(const std::string& targetInput) {
+    std::string remoteId = resolveId(targetInput);
+    if (remoteId.empty()) {
+        std::cerr << "\033[31mError: Could not resolve target '" << targetInput << "'\033[0m" << std::endl;
+        return false;
+    }
+    
+    std::string localId = getHead();
+    if (localId == remoteId) {
+        std::cout << "Already up to date." << std::endl;
+        return true;
+    }
+    
+    std::string baseId = findLCA(localId, remoteId);
+    
+    if (baseId == remoteId) {
+        std::cout << "Already up to date." << std::endl;
+        return true;
+    }
+    
+    if (baseId == localId) {
+        std::cout << "Fast-forwarding to " << remoteId.substr(0, 8) << "..." << std::endl;
+        return checkout(remoteId);
+    }
+    
+    std::cout << "Auto-merging with base " << baseId.substr(0, 8) << "..." << std::endl;
+    
+    std::map<std::string, std::string> baseTree = getTree(baseId);
+    std::map<std::string, std::string> localTree = getTree(localId);
+    std::map<std::string, std::string> remoteTree = getTree(remoteId);
+    
+    std::set<std::string> allFiles;
+    for (auto const& [f, h] : baseTree) allFiles.insert(f);
+    for (auto const& [f, h] : localTree) allFiles.insert(f);
+    for (auto const& [f, h] : remoteTree) allFiles.insert(f);
+    
+    bool conflictFound = false;
+    std::map<std::string, std::string> mergeIndex;
+
+    for (const auto& f : allFiles) {
+        std::string hBase = baseTree.count(f) ? baseTree[f] : "";
+        std::string hLocal = localTree.count(f) ? localTree[f] : "";
+        std::string hRemote = remoteTree.count(f) ? remoteTree[f] : "";
+        
+        if (hLocal == hRemote) {
+            if (!hLocal.empty()) mergeIndex[f] = hLocal;
+        } else if (hBase == hLocal) {
+            if (!hRemote.empty()) mergeIndex[f] = hRemote;
+        } else if (hBase == hRemote) {
+            if (!hLocal.empty()) mergeIndex[f] = hLocal;
+        } else {
+            // CONFLICT
+            std::cout << "\033[31mCONFLICT (content): Merge conflict in " << f << "\033[0m" << std::endl;
+            conflictFound = true;
+            
+            std::string contentLocal = hLocal.empty() ? "" : getObject(hLocal);
+            std::string contentRemote = hRemote.empty() ? "" : getObject(hRemote);
+            
+            std::stringstream conflict;
+            conflict << "<<<<<<<< HEAD\n" << contentLocal 
+                     << "\n========\n" << contentRemote 
+                     << "\n>>>>>>>> " << targetInput << "\n";
+            
+            std::string c = conflict.str();
+            std::ofstream outFile(f);
+            outFile << c;
+            
+            // For index, we'll store the conflict version for now
+            std::string hConflict = calculateHash(c);
+            storeObject(hConflict, c);
+            mergeIndex[f] = hConflict;
+        }
+    }
+    
+    // Update index with merged state
+    std::ofstream indexFile(".mygit/index");
+    for (auto const& [f, h] : mergeIndex) {
+        indexFile << f << " " << h << "\n";
+        // Also update workspace
+        if (h != (localTree.count(f) ? localTree[f] : "")) {
+            std::string content = getObject(h);
+            fs::path pParent = fs::path(f).parent_path();
+            if (!pParent.empty()) {
+                fs::create_directories(pParent);
+            }
+            std::ofstream fOut(f);
+            fOut << content;
+        }
+    }
+    indexFile.close();
+    
+    if (conflictFound) {
+        std::cout << "Automatic merge failed; fix conflicts and then commit the result." << std::endl;
+        return false;
+    }
+    
+    std::string msg = "Merge branch '" + targetInput + "'";
+    return commit(msg, {remoteId});
 }

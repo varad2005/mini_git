@@ -77,6 +77,12 @@ int main(int argc, char* argv[]) {
         bool hard = true;
         if (argc > 3 && std::string(argv[3]) == "--soft") hard = false;
         Repository::reset(argv[2], hard);
+    } else if (command == "merge") {
+        if (argc < 3) {
+            std::cerr << "Usage: mygit merge <branch|commitId>" << std::endl;
+            return 1;
+        }
+        Repository::merge(argv[2]);
     } else if (command == "diff") {
         if (argc < 4) {
              std::cerr << "Usage: mygit diff <commit1> <commit2>" << std::endl;
