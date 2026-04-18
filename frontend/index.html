@@ -66,6 +66,12 @@
                         <p class="hint">Move everything to an old state</p>
                     </div>
 
+                    <div class="input-group">
+                        <input type="text" id="mergeTarget" placeholder="Branch to merge...">
+                        <button onclick="runMerge()" class="btn btn-primary">Merge</button>
+                        <p class="hint">Combine changes from another path</p>
+                    </div>
+
                     <button onclick="toggleGuide()" class="btn btn-guide">📖 How to Use</button>
                 </nav>
             </div>
@@ -134,16 +140,20 @@
                     <p>Click <strong>Init Repo</strong> to prepare your folder. This only needs to be done once.</p>
                 </div>
                 <div class="step">
-                    <h3>2. Prepare Files</h3>
-                    <p>Enter a file name (or "." for everything) and click <strong>Add</strong>. This is like putting items in a box before shipping.</p>
+                    <h3>2. Prepare & Save</h3>
+                    <p><strong>Add</strong> files to stage them, then <strong>Commit</strong> to save a permanent snapshot. Every commit creates a unique ID.</p>
                 </div>
                 <div class="step">
-                    <h3>3. Save Snapshot</h3>
-                    <p>Write a message about what you did and click <strong>Commit</strong>. This "tapes the box shut" and saves it forever.</p>
+                    <h3>3. Teamwork (Merge)</h3>
+                    <p>Use <strong>Branch</strong> to try new ideas safely. Use <strong>Merge</strong> to combine those ideas back into your main project. If two people changed the same line, we'll mark it for you to fix!</p>
                 </div>
                 <div class="step">
-                    <h3>4. Go Back in Time</h3>
-                    <p>If you make a mistake, find a version in the **History** tab and use **Checkout** to restore your folder to that exact moment.</p>
+                    <h3>4. Safety Net (Stash)</h3>
+                    <p>Not ready to commit yet? Use <strong>Stash</strong> to "pause" your work. You can <strong>Pop</strong> it back later when you're ready.</p>
+                </div>
+                <div class="step">
+                    <h3>5. Visual History</h3>
+                    <p>Switch to the <strong>Graph Visualization</strong> tab to see your project's family tree. It shows exactly how your branches grew and merged over time.</p>
                 </div>
             </div>
             

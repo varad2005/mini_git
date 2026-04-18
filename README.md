@@ -20,12 +20,17 @@ Version control systems like **Git** are among the most critical tools in modern
 | **Stage Files** | Prepare files for the next snapshot (`add` / `add .`) | Recursive directory traversal, Hashing |
 | **Commit** | Save a permanent, immutable snapshot of staged files | **Content-Addressable Storage** (Hash-based object store) |
 | **Log** | View the complete timeline of all snapshots | **DAG Traversal** (Directed Acyclic Graph) |
-| **Status** | See which files are modified, staged, or new | Hash comparison (workspace vs index vs HEAD) |
+| **Status** | See modified, staged, or new files | Hash comparison + **.mygitignore** support |
 | **Branching** | Create parallel development paths | Pointer-based branching (branch → commit ID) |
-| **Checkout** | Restore the workspace to any version or branch | Tree reconstruction + safe file cleanup |
+| **Checkout** | Restore the workspace to any version | Tree reconstruction + safe file cleanup |
 | **Diff** | Compare any two versions line-by-line | **LCS Algorithm** (Longest Common Subsequence) |
-| **Graph** | Export commit DAG as JSON for web visualization | **BFS** (Breadth-First Search) over commit graph |
-| **Web UI** | Visual dashboard to perform all operations | REST API + Async JavaScript |
+| **Graph** | Visual commit DAG for web interface | **BFS** (Breadth-First Search) over history |
+| **Merge** | Combine changes from two branches | **Three-Way Merge** (LCA + Content Merge) |
+| **Tags** | Name a commit for easy reference | Persistent Hash Map (name → ID) |
+| **Stash** | Temporarily save workspace changes | **Stack (LIFO)** state management |
+| **Reset** | Move branch pointer to an old state | Pointer manipulation (reset --hard) |
+| **Ignoring** | Ignore specific files/folders | Pattern matching (.mygitignore) |
+| **UI** | 100% Visual Control | Integrated Web Dashboard (Mini GitHub) |
 
 ---
 
@@ -102,7 +107,10 @@ Where m, n = number of lines in each file version
 ```
 
 ### 4. Breadth-First Search (BFS) — Graph Export
-The `graph` command uses BFS starting from all branch tips and HEAD to traverse the entire commit DAG and export it as JSON for the web frontend.
+The `graph` command uses BFS starting from all branch tips and HEAD to traverse the entire commit DAG and export it as JSON for the visual graph renderer.
+
+### 5. Triple-Way Merge (LCA Algorithm)
+The `merge` command finds the **Lowest Common Ancestor (LCA)** of two branches and performs a content-level merge, intelligently combining changes or flagging conflicts.
 
 ---
 
@@ -286,6 +294,55 @@ $ ./mygit diff 559e0007 a3f8b2c1
 
 ---
 
+### `./mygit merge <target>`
+> **Purpose:** Combine changes from another branch into your current branch.
+
+Performs a **Three-Way Merge**:
+1. Finds the Lowest Common Ancestor (LCA).
+2. Merges changes from the target branch.
+3. If both changed the same file, it inserts **Conflict Markers**.
+
+```bash
+$ ./mygit merge feature-login
+Auto-merging...
+CONFLICT (content): Merge conflict in utils.h
+Automatic merge failed; fix conflicts and then commit.
+```
+
+---
+
+### `./mygit tag <name>`
+> **Purpose:** Give a commit a permanent name (v1.0, release-ready).
+
+```bash
+$ ./mygit tag v1.0
+Created tag 'v1.0' at commit a3f8b2c1
+```
+
+---
+
+### `./mygit stash push/pop`
+> **Purpose:** "Pause" your work and save it for later without committing.
+
+Uses a **Stack** to store your workspace state.
+
+```bash
+$ ./mygit stash push
+Saved working directory and index state WIP on stash@{0}
+```
+
+---
+
+### `./mygit reset <commit-id> [--hard]`
+> **Purpose:** Undo changes by moving your branch pointer back in time.
+
+```bash
+$ ./mygit reset a3f8b2c1 --hard
+HEAD is now at a3f8b2c1 (Add login feature)
+```
+
+---
+
 ### `./mygit graph`
 > **Purpose:** Export the commit DAG as JSON for the web interface.
 
@@ -299,9 +356,10 @@ The web interface at `http://localhost:8000` provides three views:
 
 | Tab | What It Shows |
 |:----|:--------------|
-| **Commit History** | Visual timeline of all snapshots with branch badges, dates, and parent links. Click any card to auto-fill the diff inputs. |
-| **Workspace Status** | Live view of staged, unstaged, and untracked files. |
-| **Diff Viewer** | Side-by-side comparison with color-coded additions and deletions. |
+| **Commit History** | Visual timeline of all snapshots with branch labels, tags, and parent links. |
+| **Graph Visualization**| **Dynamic DAG Rendering** with multi-parent merge lines and real-time layout. |
+| **Workspace Status** | Colored live view of staged, unstaged, and untracked files. |
+| **Diff Viewer** | Line-by-line comparison highlighting additions and deletions. |
 
 ### UI Features
 - 🌙 **Dark theme** with GitHub-inspired design
