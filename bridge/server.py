@@ -60,6 +60,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             result = subprocess.run([BACKEND_PATH, "init"], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
             response_data = {"output": result.stdout, "stderr": result.stderr}
             status_code = 200
+        elif path == "/status":
+            result = subprocess.run([BACKEND_PATH, "status"], cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)
+            response_data = {"output": result.stdout, "stderr": result.stderr}
+            status_code = 200
 
         self.send_response(status_code)
         self.send_header('Content-type', 'application/json')
@@ -86,6 +90,13 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             args = ["branch", data.get("name", "")]
         elif path == "/checkout":
             args = ["checkout", data.get("name", "")]
+        elif path == "/tag":
+            args = ["tag", data.get("name", ""), data.get("commitId", "")]
+            if args[2] == "": args.pop() # Remove empty commitId if not provided
+        elif path == "/stash":
+            args = ["stash", data.get("action", "push")]
+        elif path == "/reset":
+            args = ["reset", data.get("commitId", ""), "--hard" if data.get("hard", True) else "--soft"]
 
         if args:
             result = subprocess.run([BACKEND_PATH] + args, cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)

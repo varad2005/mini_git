@@ -49,38 +49,52 @@ bool Repository::add(const std::string& filename) {
         return false;
     }
 
-    if (!fs::exists(filename)) {
-        std::cerr << "Error: File '" << filename << "' does not exist." << std::endl;
-        return false;
+    std::vector<std::string> filesToAdd;
+    if (filename == ".") {
+        for (const auto& entry : fs::recursive_directory_iterator(".")) {
+            if (entry.is_regular_file() && !isIgnored(entry.path().string())) {
+                filesToAdd.push_back(fs::relative(entry.path(), ".").string());
+            }
+        }
+    } else {
+        if (!fs::exists(filename)) {
+            std::cerr << "Error: File '" << filename << "' does not exist." << std::endl;
+            return false;
+        }
+        if (isIgnored(filename)) {
+            std::cout << "File '" << filename << "' is ignored." << std::endl;
+            return false;
+        }
+        filesToAdd.push_back(filename);
     }
 
     try {
-        std::ifstream file(filename);
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        std::string content = buffer.str();
-        std::string hash = calculateHash(content);
-
-        storeObject(hash, content);
-
-        // Update index: filename hash
-        std::vector<std::pair<std::string, std::string>> indexEntries;
+        std::map<std::string, std::string> indexEntries;
         std::ifstream indexIn(".mygit/index");
         std::string line;
-        bool found = false;
         while (std::getline(indexIn, line)) {
             std::stringstream ss(line);
             std::string f, h;
             ss >> f >> h;
-            if (f == filename) {
-                indexEntries.push_back({f, hash});
-                found = true;
-            } else {
-                indexEntries.push_back({f, h});
-            }
+            if (!f.empty()) indexEntries[f] = h;
         }
         indexIn.close();
-        if (!found) indexEntries.push_back({filename, hash});
+
+        for (const auto& f : filesToAdd) {
+            std::ifstream file(f);
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            std::string content = buffer.str();
+            std::string hash = calculateHash(content);
+            storeObject(hash, content);
+            indexEntries[f] = hash;
+            if (filesToAdd.size() <= 10) {
+                std::cout << "Added " << f << " to staging area." << std::endl;
+            }
+        }
+        if (filesToAdd.size() > 10) {
+            std::cout << "Added " << filesToAdd.size() << " files to staging area." << std::endl;
+        }
 
         std::ofstream indexOut(".mygit/index");
         for (const auto& entry : indexEntries) {
@@ -88,7 +102,6 @@ bool Repository::add(const std::string& filename) {
         }
         indexOut.close();
 
-        std::cout << "Added " << filename << " to staging area." << std::endl;
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
@@ -118,6 +131,16 @@ std::string Repository::getCurrentBranch() {
         return line.substr(5);
     }
     return "";
+}
+
+void Repository::setHead(const std::string& value) {
+    std::ofstream headFile(".mygit/HEAD");
+    if (fs::exists(".mygit/branches/" + value)) {
+        headFile << "ref: " << value;
+    } else {
+        headFile << value;
+    }
+    headFile.close();
 }
 
 std::string Repository::calculateHash(const std::string& content) {
@@ -195,8 +218,13 @@ void Repository::log() {
             else if (line.substr(0, 11) == "timestamp: ") timestamp = line.substr(11);
         }
 
-        std::cout << "commit " << currentCommit << std::endl;
-        std::cout << "Date: " << timestamp << std::endl;
+        std::time_t t = std::stoll(timestamp);
+        std::tm* tm_ptr = std::localtime(&t);
+        char date_str[100];
+        std::strftime(date_str, sizeof(date_str), "%Y-%m-%d %H:%M:%S", tm_ptr);
+
+        std::cout << "\033[33mcommit " << currentCommit << "\033[0m" << std::endl;
+        std::cout << "Date: " << date_str << std::endl;
         std::cout << "\n    " << message << "\n" << std::endl;
 
         currentCommit = parent;
@@ -236,6 +264,20 @@ bool Repository::checkout(const std::string& branchName) {
         return false;
     }
 
+    // Identify current tracked files (from current HEAD) BEFORE we update it
+    std::set<std::string> currentTrackedFiles;
+    std::string previousHead = getHead();
+    if (!previousHead.empty() && previousHead != "null") {
+        std::ifstream treeFile(".mygit/commits/" + previousHead + "/tree.txt");
+        std::string line;
+        while (std::getline(treeFile, line)) {
+            std::stringstream ss(line);
+            std::string f, h;
+            ss >> f >> h;
+            if (!f.empty()) currentTrackedFiles.insert(f);
+        }
+    }
+
     // Check if it's a branch for the HEAD reference
     std::string branchPath = ".mygit/branches/" + branchName;
     if (fs::exists(branchPath)) {
@@ -253,21 +295,131 @@ bool Repository::checkout(const std::string& branchName) {
     if (!commitId.empty() && commitId != "null" && commitId != "") {
         std::string treePath = ".mygit/commits/" + commitId + "/tree.txt";
         if (fs::exists(treePath)) {
+            std::set<std::string> targetTrackedFiles;
             std::ifstream treeFile(treePath);
             std::string line;
             while (std::getline(treeFile, line)) {
                 std::stringstream ss(line);
                 std::string filename, hash;
                 ss >> filename >> hash;
+                if (filename.empty()) continue;
+                targetTrackedFiles.insert(filename);
+                
                 std::string content = getObject(hash);
+                if (!fs::path(filename).parent_path().empty()) {
+                    fs::create_directories(fs::path(filename).parent_path());
+                }
                 std::ofstream outFile(filename);
                 outFile << content;
                 outFile.close();
             }
+            treeFile.close();
+
+            // Remove files that were tracked but are NOT in the target commit
+            for (const auto& f : currentTrackedFiles) {
+                if (targetTrackedFiles.find(f) == targetTrackedFiles.end()) {
+                    if (fs::exists(f)) {
+                        fs::remove(f);
+                        std::cout << "Removed " << f << " (not in target commit)" << std::endl;
+                    }
+                }
+            }
+
+            // Update index to match checkout
+            fs::copy_file(treePath, ".mygit/index", fs::copy_options::overwrite_existing);
         }
     }
 
     return true;
+}
+
+void Repository::status() {
+    if (!fs::exists(".mygit")) {
+        std::cerr << "Error: Not a mygit repository." << std::endl;
+        return;
+    }
+
+    std::map<std::string, std::string> indexEntries;
+    std::ifstream indexIn(".mygit/index");
+    std::string line;
+    while (std::getline(indexIn, line)) {
+        std::stringstream ss(line);
+        std::string f, h;
+        ss >> f >> h;
+        if (!f.empty()) indexEntries[f] = h;
+    }
+    indexIn.close();
+
+    std::map<std::string, std::string> headEntries;
+    std::string currentHead = getHead();
+    if (!currentHead.empty() && currentHead != "null") {
+        std::ifstream treeFile(".mygit/commits/" + currentHead + "/tree.txt");
+        while (std::getline(treeFile, line)) {
+            std::stringstream ss(line);
+            std::string f, h;
+            ss >> f >> h;
+            if (!f.empty()) headEntries[f] = h;
+        }
+    }
+
+    std::cout << "On branch \033[1;36m" << (getCurrentBranch().empty() ? "detached HEAD" : getCurrentBranch()) << "\033[0m" << std::endl;
+    std::cout << std::endl;
+
+    // 1. Changes to be committed (Index vs HEAD)
+    std::cout << "\033[32mChanges to be committed:\033[0m" << std::endl;
+    bool hasStaged = false;
+    std::set<std::string> allTracked;
+    for (auto const& [f, h] : indexEntries) allTracked.insert(f);
+    for (auto const& [f, h] : headEntries) allTracked.insert(f);
+
+    for (const auto& f : allTracked) {
+        if (indexEntries.count(f) && !headEntries.count(f)) {
+            std::cout << "\033[32m  (new file)  " << f << "\033[0m" << std::endl;
+            hasStaged = true;
+        } else if (!indexEntries.count(f) && headEntries.count(f)) {
+            std::cout << "\033[32m  (deleted)   " << f << "\033[0m" << std::endl;
+            hasStaged = true;
+        } else if (indexEntries[f] != headEntries[f]) {
+            std::cout << "\033[32m  (modified)  " << f << "\033[0m" << std::endl;
+            hasStaged = true;
+        }
+    }
+    if (!hasStaged) std::cout << "  (none)" << std::endl;
+    std::cout << std::endl;
+
+    // 2. Changes not staged for commit (Workspace vs Index)
+    std::cout << "\033[31mChanges not staged for commit:\033[0m" << std::endl;
+    bool hasUnstaged = false;
+    for (auto const& [f, h] : indexEntries) {
+        if (!fs::exists(f)) {
+            std::cout << "\033[31m  (deleted)   " << f << "\033[0m" << std::endl;
+            hasUnstaged = true;
+        } else {
+            std::ifstream file(f);
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            if (calculateHash(buffer.str()) != h) {
+                std::cout << "\033[31m  (modified)  " << f << "\033[0m" << std::endl;
+                hasUnstaged = true;
+            }
+        }
+    }
+    if (!hasUnstaged) std::cout << "  (none)" << std::endl;
+    std::cout << std::endl;
+
+    // 3. Untracked files
+    std::cout << "\033[31mUntracked files:\033[0m" << std::endl;
+    bool hasUntracked = false;
+    for (const auto& entry : fs::recursive_directory_iterator(".")) {
+        if (entry.is_regular_file()) {
+            std::string relPath = fs::relative(entry.path(), ".").string();
+            if (!isIgnored(relPath) && !indexEntries.count(relPath)) {
+                std::cout << "\033[31m  " << relPath << "\033[0m" << std::endl;
+                hasUntracked = true;
+            }
+        }
+    }
+    if (!hasUntracked) std::cout << "  (none)" << std::endl;
 }
 
 void Repository::diff(const std::string& commit1, const std::string& commit2) {
@@ -356,6 +508,15 @@ std::string Repository::resolveId(const std::string& input) {
         return commitId;
     }
 
+    // 1.5 Check if it's a tag
+    std::string tagPath = ".mygit/tags/" + input;
+    if (fs::exists(tagPath)) {
+        std::ifstream tagFile(tagPath);
+        std::string commitId;
+        std::getline(tagFile, commitId);
+        return commitId;
+    }
+
     // 2. Check if it's a full ID or a prefix
     std::vector<std::string> matches;
     if (fs::exists(".mygit/commits")) {
@@ -387,10 +548,22 @@ std::string Repository::getObject(const std::string& hash) {
 
 std::vector<std::string> Repository::getAllBranches() {
     std::vector<std::string> branches;
-    for (const auto& entry : fs::directory_iterator(".mygit/branches")) {
-        branches.push_back(entry.path().filename().string());
+    if (fs::exists(".mygit/branches")) {
+        for (const auto& entry : fs::directory_iterator(".mygit/branches")) {
+            branches.push_back(entry.path().filename().string());
+        }
     }
     return branches;
+}
+
+std::vector<std::string> Repository::getAllTags() {
+    std::vector<std::string> tags;
+    if (fs::exists(".mygit/tags")) {
+        for (const auto& entry : fs::directory_iterator(".mygit/tags")) {
+            tags.push_back(entry.path().filename().string());
+        }
+    }
+    return tags;
 }
 
 std::string Repository::getGraph() {
@@ -454,6 +627,18 @@ std::string Repository::getGraph() {
                 firstBranch = false;
             }
         }
+        ss << "],\n";
+        ss << "    \"tags\": [";
+        bool firstTag = true;
+        for (const auto& tag : getAllTags()) {
+            std::ifstream tf(".mygit/tags/" + tag);
+            std::string tc; std::getline(tf, tc);
+            if (tc == currentCommit) {
+                if (!firstTag) ss << ", ";
+                ss << "\"" << tag << "\"";
+                firstTag = false;
+            }
+        }
         ss << "]\n";
         ss << "  }";
         first = false;
@@ -465,4 +650,149 @@ std::string Repository::getGraph() {
 
     ss << "\n]";
     return ss.str();
+}
+
+bool Repository::isIgnored(const std::string& path) {
+    if (path == "." || path == "..") return true;
+
+    // Load patterns from .mygitignore if it exists
+    static std::set<std::string> patterns;
+    static bool loaded = false;
+    if (!loaded) {
+        if (fs::exists(".mygitignore")) {
+            std::ifstream ignoreFile(".mygitignore");
+            std::string p;
+            while (std::getline(ignoreFile, p)) {
+                if (!p.empty() && p[0] != '#') patterns.insert(p);
+            }
+        }
+        loaded = true;
+    }
+    
+    fs::path p(path);
+    for (const auto& part : p) {
+        std::string partStr = part.string();
+        static const std::set<std::string> hardcoded = {
+            ".mygit", ".git", "mygit", "Diff.o", "Repository.o", "main.o", ".venv", "graphify-out", ".agent", "backend", "simple-git-snapshot"
+        };
+        if (hardcoded.count(partStr)) return true;
+        if (patterns.count(partStr)) return true;
+        
+        // Simple wildcard support: *.o
+        for (const auto& pattern : patterns) {
+            if (pattern.size() > 1 && pattern[0] == '*' && pattern[1] == '.') {
+                std::string ext = pattern.substr(1); // e.g. ".o"
+                if (partStr.size() >= ext.size() && partStr.substr(partStr.size() - ext.size()) == ext) return true;
+            }
+        }
+
+        if (partStr.size() > 0 && partStr[0] == '.') return true;
+    }
+
+    return false;
+}
+
+bool Repository::tag(const std::string& tagName, const std::string& commitId) {
+    if (!fs::exists(".mygit/tags")) fs::create_directories(".mygit/tags");
+    
+    std::string id = commitId.empty() ? getHead() : resolveId(commitId);
+    if (id.empty()) {
+        std::cerr << "\033[31mError: Cannot resolve commit ID for tag.\033[0m" << std::endl;
+        return false;
+    }
+
+    std::ofstream tagFile(".mygit/tags/" + tagName);
+    tagFile << id;
+    std::cout << "\033[32mCreated tag '" << tagName << "' at commit " << id.substr(0, 8) << "\033[0m" << std::endl;
+    return true;
+}
+
+bool Repository::stashPush() {
+    if (!fs::exists(".mygit/stash")) fs::create_directories(".mygit/stash");
+    
+    // Simplest stack implementation: numbered stashes
+    int nextId = 0;
+    while (fs::exists(".mygit/stash/stash_" + std::to_string(nextId))) nextId++;
+    
+    std::string stashDir = ".mygit/stash/stash_" + std::to_string(nextId);
+    fs::create_directories(stashDir);
+    
+    // Save current index
+    if (fs::exists(".mygit/index")) {
+        fs::copy(".mygit/index", stashDir + "/index");
+    }
+    
+    // Save modified workspace files relative to root
+    for (auto const& entry : fs::recursive_directory_iterator(".")) {
+        std::string path = entry.path().lexically_normal().string();
+        if (path.size() > 2 && path.substr(0, 2) == "./") path = path.substr(2);
+        
+        if (isIgnored(path) || fs::is_directory(path)) continue;
+        
+        // Only save if modified compared to index (or staging it anyway)
+        // For simplicity in this demo, let's just copy everything to a backup
+        std::string backupPath = stashDir + "/files/" + path;
+        fs::create_directories(fs::path(backupPath).parent_path());
+        fs::copy(path, backupPath);
+    }
+    
+    std::cout << "\033[32mSaved working directory and index state WIP on stash@{" << nextId << "}\033[0m" << std::endl;
+    return true;
+}
+
+bool Repository::stashPop() {
+    if (!fs::exists(".mygit/stash")) return false;
+    
+    int lastId = -1;
+    while (fs::exists(".mygit/stash/stash_" + std::to_string(lastId + 1))) lastId++;
+    
+    if (lastId == -1) {
+        std::cout << "\033[33mNo stash entries found.\033[0m" << std::endl;
+        return false;
+    }
+    
+    std::string stashDir = ".mygit/stash/stash_" + std::to_string(lastId);
+    
+    // Restore index
+    if (fs::exists(stashDir + "/index")) {
+        fs::copy(stashDir + "/index", ".mygit/index", fs::copy_options::overwrite_existing);
+    }
+    
+    // Restore files
+    if (fs::exists(stashDir + "/files")) {
+        for (auto const& entry : fs::recursive_directory_iterator(stashDir + "/files")) {
+            if (fs::is_directory(entry)) continue;
+            std::string relative = entry.path().lexically_relative(stashDir + "/files").string();
+            fs::create_directories(fs::path(relative).parent_path());
+            fs::copy(entry.path(), relative, fs::copy_options::overwrite_existing);
+        }
+    }
+    
+    fs::remove_all(stashDir);
+    std::cout << "\033[32mDropped stash@{" << lastId << "} and restored working state.\033[0m" << std::endl;
+    return true;
+}
+
+bool Repository::reset(const std::string& commitId, bool hard) {
+    std::string id = resolveId(commitId);
+    if (id.empty()) {
+        std::cerr << "\033[31mError: Could not resolve commit ID '" << commitId << "'\033[0m" << std::endl;
+        return false;
+    }
+    
+    // Move branch pointer
+    std::string branch = getCurrentBranch();
+    if (!branch.empty()) {
+        std::ofstream branchFile(".mygit/branches/" + branch);
+        branchFile << id;
+    } else {
+        setHead(id);
+    }
+    
+    if (hard) {
+        return checkout(id); // Use checkout logic to force workspace update
+    }
+    
+    std::cout << "\033[32mHEAD is now at " << id.substr(0, 8) << "\033[0m" << std::endl;
+    return true;
 }

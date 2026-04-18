@@ -1,7 +1,20 @@
 const API_BASE = 'http://localhost:8000';
 
 function updateStatus(msg) {
-    document.getElementById('statusBar').textContent = msg;
+    const bar = document.getElementById('statusBar');
+    const btn = document.getElementById('clearStatusBtn');
+    bar.textContent = msg;
+    if (msg && msg !== 'Ready') {
+        btn.style.display = 'block';
+        bar.title = msg; // Show full text on hover
+    } else {
+        btn.style.display = 'none';
+        bar.title = '';
+    }
+}
+
+function clearStatus() {
+    updateStatus('Ready');
 }
 
 async function apiCall(endpoint, method = 'GET', data = null) {
@@ -63,6 +76,43 @@ async function runCheckout() {
     }
 }
 
+async function runTag() {
+    const name = document.getElementById('tagName').value;
+    const commitId = document.getElementById('checkoutTarget').value; // Reuse checkout input for tag target
+    if (!name) return updateStatus('Enter tag name');
+    const res = await apiCall('/tag', 'POST', { name, commitId });
+    if (res) {
+        updateStatus(res.output || res.stderr);
+        loadHistory();
+    }
+}
+
+async function runStash(action) {
+    const res = await apiCall('/stash', 'POST', { action });
+    if (res) {
+        updateStatus(res.output || res.stderr);
+        runStatus();
+    }
+}
+
+async function runReset() {
+    const commitId = document.getElementById('resetTarget').value;
+    if (!commitId) return updateStatus('Enter commit ID to reset to');
+    const res = await apiCall('/reset', 'POST', { commitId, hard: true });
+    if (res) {
+        updateStatus(res.output || res.stderr);
+        loadHistory();
+        runStatus();
+    }
+}
+
+async function runStatus() {
+    const res = await apiCall('/status');
+    if (res) {
+        document.getElementById('statusOutput').textContent = res.output || res.stderr;
+    }
+}
+
 async function runDiff() {
     const c1 = document.getElementById('commit1').value;
     const c2 = document.getElementById('commit2').value;
@@ -94,7 +144,21 @@ async function loadHistory() {
     list.innerHTML = '';
 
     try {
-        const commits = JSON.parse(res.output);
+        const data = JSON.parse(res.output);
+        renderCommitList(data);
+        if (document.getElementById('graph-view').style.display === 'block') {
+            renderVisualGraph(data);
+        }
+    } catch (e) {
+        console.error("Failed to parse graph JSON", e);
+    }
+}
+
+function renderCommitList(commits) {
+    const list = document.getElementById('commitList');
+    list.innerHTML = '';
+
+    try {
         if (commits.length === 0) return;
 
         commits.forEach(commit => {
@@ -104,11 +168,13 @@ async function loadHistory() {
             card.className = 'commit-card';
             
             let branchBadges = (commit.branches || []).map(b => `<span class="branch-badge">${b}</span>`).join(' ');
+            let tagBadges = (commit.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join(' ');
             
             card.innerHTML = `
                 <div class="commit-header">
                     <span class="commit-id">${commit.id.substring(0, 8)}</span>
                     ${branchBadges}
+                    ${tagBadges}
                     <span class="commit-date">${date}</span>
                 </div>
                 <div class="commit-msg">${commit.message}</div>
@@ -129,13 +195,86 @@ async function loadHistory() {
     }
 }
 
+let visualNetwork = null;
+
+function renderVisualGraph(data) {
+    const container = document.getElementById('visualGraph');
+    const nodes = [];
+    const edges = [];
+
+    data.forEach(commit => {
+        let color = '#21262d'; 
+        let label = commit.id.substr(0, 7);
+        
+        if (commit.branches && commit.branches.length > 0) {
+            color = '#58a6ff'; 
+            label += `\n(${commit.branches.join(', ')})`;
+        }
+        
+        if (commit.tags && commit.tags.length > 0) {
+            color = '#3fb950'; 
+            label += `\n[${commit.tags.join(', ')}]`;
+        }
+
+        nodes.push({
+            id: commit.id,
+            label: label,
+            title: `Message: ${commit.message}\nDate: ${commit.timestamp}`,
+            color: { background: color, border: '#30363d' },
+            font: { color: '#c9d1d9', size: 11 }
+        });
+
+        if (commit.parent && commit.parent !== 'null' && commit.parent !== '') {
+            edges.push({
+                from: commit.id,
+                to: commit.parent,
+                arrows: 'to',
+                color: '#30363d'
+            });
+        }
+    });
+
+    const graphData = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+    const options = {
+        layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 150 } },
+        physics: false,
+        interaction: { hover: true, tooltipDelay: 200 }
+    };
+
+    if (visualNetwork) visualNetwork.destroy();
+    visualNetwork = new vis.Network(container, graphData, options);
+}
+
 function switchTab(tabId) {
     document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
     document.getElementById(`${tabId}-view`).style.display = 'block';
     
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelector(`[onclick="switchTab('${tabId}')"]`).classList.add('active');
+    // Find the button that calls switchTab with this tabId
+    const activeTab = document.querySelector(`button[onclick="switchTab('${tabId}')"]`);
+    if (activeTab) activeTab.classList.add('active');
+
+    if (tabId === 'history' || tabId === 'graph') loadHistory();
+    if (tabId === 'status') runStatus();
 }
 
 // Initial load
 loadHistory();
+runStatus();
+
+function toggleGuide() {
+    const modal = document.getElementById('guideModal');
+    if (modal.style.display === 'block') {
+        modal.style.display = 'none';
+    } else {
+        modal.style.display = 'block';
+    }
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('guideModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
