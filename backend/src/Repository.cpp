@@ -1,5 +1,5 @@
-#include "Repository.h"
-#include "Diff.h"
+#include "../include/Repository.h"
+#include "../include/Diff.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>

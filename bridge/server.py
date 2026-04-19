@@ -97,6 +97,8 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             args = ["stash", data.get("action", "push")]
         elif path == "/reset":
             args = ["reset", data.get("commitId", ""), "--hard" if data.get("hard", True) else "--soft"]
+        elif path == "/merge":
+            args = ["merge", data.get("target", "")]
 
         if args:
             result = subprocess.run([BACKEND_PATH] + args, cwd=os.path.join(BASE_DIR, "backend"), capture_output=True, text=True)

@@ -278,3 +278,15 @@ window.onclick = function(event) {
         modal.style.display = 'none';
     }
 }
+
+async function runMerge() {
+    const target = document.getElementById('mergeTarget').value;
+    if (!target) return updateStatus('Please enter a branch or commit to merge');
+    updateStatus('Merging...');
+    const res = await apiCall('/merge', 'POST', { target });
+    if (res) {
+        updateStatus(res.output || res.stderr);
+        loadHistory();
+        runStatus();
+    }
+}

@@ -7,7 +7,6 @@
 #include <set>
 #include <filesystem>
 
-namespace fs = std::filesystem;
 
 class Repository {
 public:

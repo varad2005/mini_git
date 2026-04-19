@@ -1,3 +1,0 @@
-test content
-new content line
-ollama run deepseek-coder:1.3b
